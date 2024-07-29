@@ -1,0 +1,16 @@
+These are personal notes from lazyfoo.net's tutorial for SDL.
+
+Chapter 2:
+	1. Instead of have one main funciton, we want to split our code up into bool init(); bool loadMedia(); void close();
+	2. SDL surface = an image data type contains pixels of an image along with all data needed to render it.
+	3. The following are pointers because we'll be dynamically allocating memory to load images, and more effiecient to reference an image by memory.
+	//The window we'll be rendering to
+	SDL_Window* gWindow = NULL;
+    
+	//The surface contained by the window
+	SDL_Surface* gScreenSurface = NULL;
+
+	//The image we will load and show on the screen
+	SDL_Surface* gHelloWorld = NULL;
+	4. SDL_BlitSurface( gHelloWorld, NULL, gScreenSurface, NULL ); ->  calls to SDL_BlitSurface, render to the back buffer, 
+	what you see on the screen is the front buffer, so later we have to call SDL_UpdateWindowSurface( gWindow ); after all blits are done.
