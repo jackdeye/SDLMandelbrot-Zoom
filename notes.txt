@@ -14,3 +14,7 @@ Chapter 2:
 	SDL_Surface* gHelloWorld = NULL;
 	4. SDL_BlitSurface( gHelloWorld, NULL, gScreenSurface, NULL ); ->  calls to SDL_BlitSurface, render to the back buffer, 
 	what you see on the screen is the front buffer, so later we have to call SDL_UpdateWindowSurface( gWindow ); after all blits are done.
+
+
+	https://stackoverflow.com/questions/21007329/what-is-an-sdl-renderer
+	This is a great resource for differences between sdl_renderer, sdl_window, sdl_texture, and sdl_surface

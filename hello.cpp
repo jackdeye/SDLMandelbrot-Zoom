@@ -2,35 +2,37 @@
 #include <SDL_image.h>
 #include <stdio.h>
 #include <vector>
-#include <string>
+#include <queue>
 #include <thread>
 #include <mutex>
+#include <chrono>
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
+const int PANEL_WIDTH = 32;
+const int PANEL_HEIGHT = 32;
+const int NUM_THREADS = 1; //This can be changed later
 
-//Starts up SDL and creates window
+SDL_Window* gWindow = nullptr;	//The window we'll be rendering to
+SDL_Surface* gScreenSurface = nullptr;	//The surface contained by the window
+//Going to want to use SDL_Renderer and RenderClear, RenderCopy, RenderPresent
+//SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+std::queue<panel*> animationQueue;
+
+struct panel {
+	panel() {}
+	panel(int x1, int y1, int x2, int y2) : 
+		topLeftX(x1), topLeftY(y1), bottomRightX(x1), bottomRightY(y2) {}
+	int topLeftX, topLeftY, bottomRightX, bottomRightY;
+};
+
 bool init();
-//Loads media
-bool loadMedia();
-//Frees media and shuts down SDL
 void close();
-//Renders a section of the mandelbrot image
-void render_strip(SDL_Surface* surface, int start_y, int end_y);
-
-//Loads individual image
-SDL_Surface* loadSurface(std::string path);
-//The window we'll be rendering to
-SDL_Window* gWindow = nullptr;
-//The surface contained by the window
-SDL_Surface* gScreenSurface = nullptr;
-//Current displayed PNG image
-SDL_Surface* gPNGSurface = nullptr;
+void queueInit();
 
 bool init()
 {
-	//Initialization flag
 	bool success = true;
 
 	//Initialize SDL
@@ -42,7 +44,7 @@ bool init()
 	else
 	{
 		//Create window
-		gWindow = SDL_CreateWindow("SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+		gWindow = SDL_CreateWindow("Mandelbrot Zoom", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
 		if (gWindow == nullptr)
 		{
 			printf("Window could not be created! SDL Error: %s\n", SDL_GetError());
@@ -50,34 +52,8 @@ bool init()
 		}
 		else
 		{
-			//Initialize PNG loading
-			int imgFlags = IMG_INIT_PNG;
-			if (!(IMG_Init(imgFlags) & imgFlags))
-			{
-				printf("SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError());
-				success = false;
-			}
-			else
-			{
-				gScreenSurface = SDL_GetWindowSurface(gWindow);
-			}
+			queueInit();
 		}
-	}
-
-	return success;
-}
-
-bool loadMedia()
-{
-	//Loading success flag
-	bool success = true;
-
-	//Load PNG surface
-	gPNGSurface = loadSurface("Resources/up.jpg");
-	if (gPNGSurface == nullptr)
-	{
-		printf("Failed to load PNG image!\n");
-		success = false;
 	}
 
 	return success;
@@ -138,7 +114,8 @@ int main(int argc, char* args[])
 		return 1;
 	}
 		
-	std::mutex mutex;
+	std::mutex locks[NUM_THREADS];
+	std
 	std::vector<std::thread> threads;
 
 	// ... divide image into strips and create threads
@@ -165,4 +142,26 @@ int main(int argc, char* args[])
 	}
 	close();
 	return 0;
+}
+
+void queueInit() {
+	panel* panelGrid[SCREEN_HEIGHT / PANEL_HEIGHT][SCREEN_WIDTH / PANEL_WIDTH];
+	for (int i = 0; i < SCREEN_HEIGHT; i += PANEL_HEIGHT) {
+		for (int j = 0; j < SCREEN_WIDTH; j += PANEL_WIDTH) {
+			panelGrid[i / PANEL_HEIGHT][j / PANEL_WIDTH] = new panel(j, i, j + PANEL_WIDTH, i + PANEL_HEIGHT);
+		}
+	}
+	int numPanels = SCREEN_HEIGHT / PANEL_HEIGHT * SCREEN_WIDTH / PANEL_WIDTH;
+	int targetX = SCREEN_WIDTH / 2;
+	targetX -= targetX % PANEL_WIDTH;
+	int targetY = SCREEN_HEIGHT / 2;
+	targetY -= targetX % PANEL_HEIGHT;
+	int size = 1;
+	while (animationQueue.size() < numPanels) {
+		animationQueue.push(panelGrid[targetY / PANEL_HEIGHT][targetX / PANEL_WIDTH]);
+		for (int i = 0; i < size; i++) {
+			targetX
+				animationQueue.push(panelGrid[targetY / PANEL_HEIGHT][targetX / PANEL_WIDTH]);
+		}
+	}
 }
