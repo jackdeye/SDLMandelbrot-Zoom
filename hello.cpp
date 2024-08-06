@@ -16,9 +16,9 @@ const int NUM_THREADS = 1; //This can be changed later
 
 SDL_Window* gWindow = nullptr;	//The window we'll be rendering to
 SDL_Surface* gScreenSurface = nullptr;	//The surface contained by the window
-//Going to want to use SDL_Renderer and RenderClear, RenderCopy, RenderPresent
-//SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+SDL_Renderer* renderer = nullptr;
 std::queue<panel*> animationQueue;
+std::mutex mtx;
 
 struct panel {
 	panel() {}
@@ -61,9 +61,6 @@ bool init()
 
 void close()
 {
-	//Free loaded image
-	SDL_FreeSurface(gPNGSurface);
-	gPNGSurface = nullptr;
 
 	//Destroy window
 	SDL_DestroyWindow(gWindow);
@@ -114,14 +111,9 @@ int main(int argc, char* args[])
 		return 1;
 	}
 		
-	std::mutex locks[NUM_THREADS];
-	std
 	std::vector<std::thread> threads;
-
-	// ... divide image into strips and create threads
-
-	for (auto& thread : threads) {
-		thread.join();
+	for (int i = 0; i < NUM_THREADS; i++) {
+		//threads.emplace_back();
 	}
 
 	bool quit = false;
@@ -136,32 +128,78 @@ int main(int argc, char* args[])
 			{
 					quit = true;
 			}
-		SDL_BlitSurface(gPNGSurface, NULL, gScreenSurface, NULL);
-		SDL_UpdateWindowSurface(gWindow);
+
 		}
 	}
 	close();
 	return 0;
 }
 
+//The following is entirely unneccesary; however, I wanted the spiralling outward pattern that Cinebench has, 
+//So I decided to program it myself. The following grid below should be drawn in the following order:
+/*
+-----------------
+| 10| 3 | 2 | 9 |
+-----------------
+| 11| 4 | 1 | 8 |
+-----------------
+| 12| 5 | 6 | 7 |
+-----------------
+*/
+
 void queueInit() {
-	panel* panelGrid[SCREEN_HEIGHT / PANEL_HEIGHT][SCREEN_WIDTH / PANEL_WIDTH];
+	const int numTall = SCREEN_HEIGHT / PANEL_HEIGHT;
+	const int numWide = SCREEN_WIDTH / PANEL_WIDTH;
+	panel* panelGrid[numTall][numWide];
 	for (int i = 0; i < SCREEN_HEIGHT; i += PANEL_HEIGHT) {
 		for (int j = 0; j < SCREEN_WIDTH; j += PANEL_WIDTH) {
 			panelGrid[i / PANEL_HEIGHT][j / PANEL_WIDTH] = new panel(j, i, j + PANEL_WIDTH, i + PANEL_HEIGHT);
 		}
 	}
-	int numPanels = SCREEN_HEIGHT / PANEL_HEIGHT * SCREEN_WIDTH / PANEL_WIDTH;
+	int numPanels = numTall * numWide;
 	int targetX = SCREEN_WIDTH / 2;
 	targetX -= targetX % PANEL_WIDTH;
 	int targetY = SCREEN_HEIGHT / 2;
-	targetY -= targetX % PANEL_HEIGHT;
-	int size = 1;
-	while (animationQueue.size() < numPanels) {
-		animationQueue.push(panelGrid[targetY / PANEL_HEIGHT][targetX / PANEL_WIDTH]);
+	targetY -= targetY % PANEL_HEIGHT;
+	int size = 0;
+	int xIndex = targetX / PANEL_WIDTH, yIndex = targetY / PANEL_HEIGHT;
+	bool doneSpiraling = false;
+	while (size < numTall || size < numWide) {
+		size++;
+		animationQueue.push(panelGrid[yIndex][xIndex]);
+		
+		//Up
 		for (int i = 0; i < size; i++) {
-			targetX
-				animationQueue.push(panelGrid[targetY / PANEL_HEIGHT][targetX / PANEL_WIDTH]);
+			yIndex--;
+			if (yIndex < 0) {
+				doneSpiraling = true;
+				break;
+			}
+			animationQueue.push(panelGrid[yIndex][xIndex]);
+		}
+		if (doneSpiraling) break;
+		//Left
+		for (int i = 0; i < size; i++) {
+			xIndex--;
+			if (xIndex < 0) {
+				doneSpiraling = true;
+				break;
+			}
+			animationQueue.push(panelGrid[yIndex][xIndex]);
+		}
+		if (doneSpiraling) break;
+		size++;
+		//Down
+		for (int i = 0; i < size; i++) {
+			yIndex++;
+			animationQueue.push(panelGrid[yIndex][xIndex]);
+		}
+		//Right
+		for (int i = 0; i < size; i++) {
+			xIndex++;
+			animationQueue.push(panelGrid[yIndex][xIndex]);
 		}
 	}
+
+	//Do we have any to the right or left
 }
