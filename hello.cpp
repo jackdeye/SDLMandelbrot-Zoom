@@ -5,7 +5,9 @@
 #include <queue>
 #include <thread>
 #include <mutex>
+#include <functional>
 #include <chrono>
+#include <iostream>
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 640;
@@ -14,18 +16,23 @@ const int PANEL_WIDTH = 32;
 const int PANEL_HEIGHT = 32;
 const int NUM_THREADS = 1; //This can be changed later
 
-SDL_Window* gWindow = nullptr;	//The window we'll be rendering to
-SDL_Surface* gScreenSurface = nullptr;	//The surface contained by the window
-SDL_Renderer* renderer = nullptr;
-std::queue<panel*> animationQueue;
-std::mutex mtx;
 
-struct panel {
+struct panel{
 	panel() {}
 	panel(int x1, int y1, int x2, int y2) : 
 		topLeftX(x1), topLeftY(y1), bottomRightX(x1), bottomRightY(y2) {}
 	int topLeftX, topLeftY, bottomRightX, bottomRightY;
 };
+
+
+SDL_Window* gWindow = nullptr;	//The window we'll be rendering to
+SDL_Surface* gScreenSurface = nullptr;	//The surface contained by the window
+SDL_Renderer* renderer = nullptr;
+std::queue<panel*> animationQueue;
+std::queue<std::function<void()>> taskQueue;
+std::mutex mtx;
+bool done = false;
+
 
 bool init();
 void close();
@@ -101,21 +108,59 @@ void render_strip(SDL_Surface* surface, int start_y, int end_y) {
 	
 }
 
+void test() {
+	while (true) {
+		std::function<void()> task;
+		{
+			std::unique_lock<std::mutex> lock(mtx);
+			if (!taskQueue.empty()) {
+				//front() returns a reference (lvalue) but std::move casts it to a rvalue ref, 
+				//meaning the move operator can be called and not the copy constructor
+				task = std::move(taskQueue.front());
+				taskQueue.pop();
+			}
+			else if (done) {
+				break;
+			}
+		}
+		if (task) {
+			task();
+		}
+	}
+}
+
 int main(int argc, char* args[])
 {
 	//Creates window
+	/*
 	if (!init())
 	{
 		printf("Failed to initialize!\n");
 		close();
 		return 1;
 	}
-		
+	*/
+
 	std::vector<std::thread> threads;
 	for (int i = 0; i < NUM_THREADS; i++) {
-		//threads.emplace_back();
+		threads.emplace_back(test);
+	}
+	{
+		std::unique_lock<std::mutex> lock(mtx);
+		for (int i = 0; i < 10; ++i) {
+			taskQueue.push([i] {
+				std::cout << "Processing task " << i << std::endl;
+				});
+		}
 	}
 
+	// Signal that no more tasks will be added
+	{
+		std::unique_lock<std::mutex> lock(mtx);
+		done = true;
+	}
+	/*
+	
 	bool quit = false;
 	SDL_Event e;
 
@@ -132,6 +177,11 @@ int main(int argc, char* args[])
 		}
 	}
 	close();
+	*/
+	
+	for (auto& thread : threads) {
+		thread.join();
+	}
 	return 0;
 }
 
@@ -150,7 +200,7 @@ int main(int argc, char* args[])
 void queueInit() {
 	const int numTall = SCREEN_HEIGHT / PANEL_HEIGHT;
 	const int numWide = SCREEN_WIDTH / PANEL_WIDTH;
-	panel* panelGrid[numTall][numWide];
+	panel* panelGrid[numTall][numWide]{};
 	for (int i = 0; i < SCREEN_HEIGHT; i += PANEL_HEIGHT) {
 		for (int j = 0; j < SCREEN_WIDTH; j += PANEL_WIDTH) {
 			panelGrid[i / PANEL_HEIGHT][j / PANEL_WIDTH] = new panel(j, i, j + PANEL_WIDTH, i + PANEL_HEIGHT);
