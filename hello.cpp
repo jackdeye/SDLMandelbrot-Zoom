@@ -1,4 +1,5 @@
 #include <SDL.h>
+#include <sstream>
 #include <SDL_image.h>
 #include <stdio.h>
 #include <vector>
@@ -14,9 +15,13 @@ const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
 const int PANEL_WIDTH = 32;
 const int PANEL_HEIGHT = 32;
-const int NUM_THREADS = 1; //This can be changed later
+const int NUM_THREADS = 3; //This can be changed later
 
-
+struct Coord {
+	Coord(int x, int y): x(x), y(y){}
+	int x = 0;
+	int y = 0;
+};
 struct panel{
 	panel() {}
 	panel(int x1, int y1, int x2, int y2) : 
@@ -59,13 +64,24 @@ bool init()
 		}
 		else
 		{
+			//Create renderer for window
+			renderer = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_ACCELERATED);
+			if (renderer == nullptr)
+			{
+				printf("Renderer could not be created! SDL Error: %s\n", SDL_GetError());
+				success = false;
+			}
+			else
+			{
+				//Initialize renderer color
+				SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+			}
 			queueInit();
 		}
 	}
 
 	return success;
 }
-
 void close()
 {
 
@@ -104,11 +120,19 @@ SDL_Surface* loadSurface(std::string path)
 	return optimizedSurface;
 }
 
-void render_strip(SDL_Surface* surface, int start_y, int end_y) {
-	
+void render_strip(SDL_Renderer* renderer, Coord start, Coord end) {
+	SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+	for (int i = start.x; i < end.x; i++) {
+		for (int j = start.y; j < end.y; j++) {
+			SDL_RenderDrawPoint(renderer, i, j);
+		}
+	}
+	std::ostringstream oss;
+	oss << "Finished drawing from (" << start.x << ", " << start.y << ") to (" << end.x << ", " << end.y << ")" << std::endl;
+	std::cout << oss.str() << std::endl;
 }
 
-void test() {
+void worker() {
 	while (true) {
 		std::function<void()> task;
 		{
@@ -131,36 +155,36 @@ void test() {
 
 int main(int argc, char* args[])
 {
-	//Creates window
-	/*
 	if (!init())
 	{
 		printf("Failed to initialize!\n");
 		close();
 		return 1;
 	}
-	*/
+
+	Coord start = Coord(0,0);
+	Coord end = Coord(PANEL_WIDTH, PANEL_HEIGHT);
 
 	std::vector<std::thread> threads;
 	for (int i = 0; i < NUM_THREADS; i++) {
-		threads.emplace_back(test);
+		threads.emplace_back(worker);
 	}
-	{
+	{	
 		std::unique_lock<std::mutex> lock(mtx);
 		for (int i = 0; i < 10; ++i) {
-			taskQueue.push([i] {
-				std::cout << "Processing task " << i << std::endl;
-				});
+			auto boundFunction = std::bind(render_strip, renderer, start, end);
+			taskQueue.push(boundFunction);
+			start = end;
+			end.x += PANEL_WIDTH;
 		}
 	}
-
 	// Signal that no more tasks will be added
 	{
 		std::unique_lock<std::mutex> lock(mtx);
 		done = true;
 	}
-	/*
 	
+
 	bool quit = false;
 	SDL_Event e;
 
@@ -173,11 +197,11 @@ int main(int argc, char* args[])
 			{
 					quit = true;
 			}
-
 		}
+		SDL_RenderPresent(renderer);
+
 	}
 	close();
-	*/
 	
 	for (auto& thread : threads) {
 		thread.join();
