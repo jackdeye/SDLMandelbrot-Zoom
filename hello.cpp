@@ -18,15 +18,16 @@ const int PANEL_HEIGHT = 32;
 const int NUM_THREADS = 3; //This can be changed later
 
 struct Coord {
+	Coord() {};
 	Coord(int x, int y): x(x), y(y){}
 	int x = 0;
 	int y = 0;
 };
+
 struct panel{
-	panel() {}
-	panel(int x1, int y1, int x2, int y2) : 
-		topLeftX(x1), topLeftY(y1), bottomRightX(x1), bottomRightY(y2) {}
-	int topLeftX, topLeftY, bottomRightX, bottomRightY;
+	panel() {};
+	panel(Coord TopLeft, Coord BottomRight) : TopLeft(TopLeft), BottomRight(BottomRight){}
+	Coord TopLeft, BottomRight;
 };
 
 
@@ -34,15 +35,14 @@ SDL_Window* gWindow = nullptr;	//The window we'll be rendering to
 SDL_Surface* gScreenSurface = nullptr;	//The surface contained by the window
 SDL_Renderer* renderer = nullptr;
 std::queue<panel*> animationQueue;
-std::queue<std::function<void()>> taskQueue;
+std::queue<std::function<void>> taskQueue;
 std::mutex mtx;
 bool done = false;
 
 
 bool init();
 void close();
-void queueInit();
-
+//void queueInit();
 bool init()
 {
 	bool success = true;
@@ -76,7 +76,7 @@ bool init()
 				//Initialize renderer color
 				SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
 			}
-			queueInit();
+			//queueInit();
 		}
 	}
 
@@ -93,6 +93,8 @@ void close()
 	IMG_Quit();
 	SDL_Quit();
 }
+std::queue<panel*> simpleQueueInit(std::queue<panel*> panels);
+
 
 SDL_Surface* loadSurface(std::string path)
 {
@@ -127,6 +129,7 @@ void render_strip(SDL_Renderer* renderer, Coord start, Coord end) {
 			SDL_RenderDrawPoint(renderer, i, j);
 		}
 	}
+	std::this_thread::sleep_for(std::chrono::seconds(1));
 	std::ostringstream oss;
 	oss << "Finished drawing from (" << start.x << ", " << start.y << ") to (" << end.x << ", " << end.y << ")" << std::endl;
 	std::cout << oss.str() << std::endl;
@@ -134,7 +137,7 @@ void render_strip(SDL_Renderer* renderer, Coord start, Coord end) {
 
 void worker() {
 	while (true) {
-		std::function<void()> task;
+		std::function<void> task;
 		{
 			std::unique_lock<std::mutex> lock(mtx);
 			if (!taskQueue.empty()) {
@@ -162,20 +165,26 @@ int main(int argc, char* args[])
 		return 1;
 	}
 
-	Coord start = Coord(0,0);
-	Coord end = Coord(PANEL_WIDTH, PANEL_HEIGHT);
+	//Coord start = Coord(0,0);
+	//Coord end = Coord(PANEL_WIDTH, PANEL_HEIGHT);
+
+	animationQueue = simpleQueueInit(animationQueue);
 
 	std::vector<std::thread> threads;
 	for (int i = 0; i < NUM_THREADS; i++) {
 		threads.emplace_back(worker);
 	}
-	{	
+	{
 		std::unique_lock<std::mutex> lock(mtx);
-		for (int i = 0; i < 10; ++i) {
-			auto boundFunction = std::bind(render_strip, renderer, start, end);
+		while (!animationQueue.empty()) {
+			panel* p = animationQueue.front();
+			animationQueue.pop();
+			auto boundFunction = p {
+				std::unique_lock<std::mutex> lock(mtx);
+				render_strip(renderer, p->TopLeft, p->BottomRight);
+				delete p;
+			};
 			taskQueue.push(boundFunction);
-			start = end;
-			end.x += PANEL_WIDTH;
 		}
 	}
 	// Signal that no more tasks will be added
@@ -183,7 +192,6 @@ int main(int argc, char* args[])
 		std::unique_lock<std::mutex> lock(mtx);
 		done = true;
 	}
-	
 
 	bool quit = false;
 	SDL_Event e;
@@ -191,15 +199,22 @@ int main(int argc, char* args[])
 	while (!quit)
 	{
 		while (SDL_PollEvent(&e) != 0)
-		{		
+		{
 			//User requests quit
 			if (e.type == SDL_QUIT)
 			{
-					quit = true;
+				quit = true;
 			}
 		}
-		SDL_RenderPresent(renderer);
-
+		{
+			std::unique_lock<std::mutex> lock(mtx);
+			while (!taskQueue.empty()) {
+				auto task = std::move(taskQueue.front());
+				taskQueue.pop();
+				task();
+			}
+		}
+		SDL_RenderPresent(renderer); // Update the renderer after processing tasks
 	}
 	close();
 	
@@ -221,6 +236,17 @@ int main(int argc, char* args[])
 -----------------
 */
 
+std::queue<panel*> simpleQueueInit(std::queue<panel*> panels) {
+	for (int i = 0; i < SCREEN_HEIGHT; i+=PANEL_HEIGHT) {
+		for (int j = 0; j < SCREEN_WIDTH; j+=PANEL_WIDTH) {
+			Coord start = Coord(j,i);
+			Coord end = Coord(j + PANEL_WIDTH, i + PANEL_HEIGHT);
+			panels.push(new panel(start, end));
+		}
+	}
+	return panels;
+}
+/*
 void queueInit() {
 	const int numTall = SCREEN_HEIGHT / PANEL_HEIGHT;
 	const int numWide = SCREEN_WIDTH / PANEL_WIDTH;
@@ -277,3 +303,4 @@ void queueInit() {
 
 	//Do we have any to the right or left
 }
+*/
