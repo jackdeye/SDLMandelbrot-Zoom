@@ -35,8 +35,9 @@ SDL_Window* gWindow = nullptr;	//The window we'll be rendering to
 SDL_Surface* gScreenSurface = nullptr;	//The surface contained by the window
 SDL_Renderer* renderer = nullptr;
 std::queue<panel*> animationQueue;
-std::queue<std::function<void>> taskQueue;
+std::queue<std::function<void()>> taskQueue;
 std::mutex mtx;
+std::condition_variable cv;
 bool done = false;
 
 
@@ -94,6 +95,7 @@ void close()
 	SDL_Quit();
 }
 std::queue<panel*> simpleQueueInit(std::queue<panel*> panels);
+std::queue<panel*> simpleQueueInitVert(std::queue<panel*> panels);
 
 
 SDL_Surface* loadSurface(std::string path)
@@ -124,22 +126,23 @@ SDL_Surface* loadSurface(std::string path)
 
 void render_strip(SDL_Renderer* renderer, Coord start, Coord end) {
 	SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-	for (int i = start.x; i < end.x; i++) {
-		for (int j = start.y; j < end.y; j++) {
-			SDL_RenderDrawPoint(renderer, i, j);
+	for (int i = start.y; i < end.y; i++) {
+		for (int j = start.x; j < end.x; j++) {
+			SDL_RenderDrawPoint(renderer, j, i);
 		}
 	}
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 	std::ostringstream oss;
-	oss << "Finished drawing from (" << start.x << ", " << start.y << ") to (" << end.x << ", " << end.y << ")" << std::endl;
+	oss << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " has finished drawing from (" << start.x << ", " << start.y << ") to (" << end.x << ", " << end.y << ")" << std::endl;
 	std::cout << oss.str() << std::endl;
 }
 
 void worker() {
 	while (true) {
-		std::function<void> task;
+		std::function<void()> task;
 		{
 			std::unique_lock<std::mutex> lock(mtx);
+			cv.wait(lock, [] { return !taskQueue.empty() || done; });
 			if (!taskQueue.empty()) {
 				//front() returns a reference (lvalue) but std::move casts it to a rvalue ref, 
 				//meaning the move operator can be called and not the copy constructor
@@ -168,7 +171,7 @@ int main(int argc, char* args[])
 	//Coord start = Coord(0,0);
 	//Coord end = Coord(PANEL_WIDTH, PANEL_HEIGHT);
 
-	animationQueue = simpleQueueInit(animationQueue);
+	animationQueue = simpleQueueInitVert(animationQueue);
 
 	std::vector<std::thread> threads;
 	for (int i = 0; i < NUM_THREADS; i++) {
@@ -179,18 +182,20 @@ int main(int argc, char* args[])
 		while (!animationQueue.empty()) {
 			panel* p = animationQueue.front();
 			animationQueue.pop();
-			auto boundFunction = p {
-				std::unique_lock<std::mutex> lock(mtx);
+			auto boundFunction = [p]() {
+				//std::unique_lock<std::mutex> lock(mtx);
 				render_strip(renderer, p->TopLeft, p->BottomRight);
 				delete p;
 			};
 			taskQueue.push(boundFunction);
 		}
+		cv.notify_all();
 	}
 	// Signal that no more tasks will be added
 	{
 		std::unique_lock<std::mutex> lock(mtx);
 		done = true;
+		cv.notify_all();
 	}
 
 	bool quit = false;
@@ -205,16 +210,9 @@ int main(int argc, char* args[])
 			{
 				quit = true;
 			}
+			SDL_RenderPresent(renderer);
 		}
-		{
-			std::unique_lock<std::mutex> lock(mtx);
-			while (!taskQueue.empty()) {
-				auto task = std::move(taskQueue.front());
-				taskQueue.pop();
-				task();
-			}
-		}
-		SDL_RenderPresent(renderer); // Update the renderer after processing tasks
+		SDL_RenderPresent(renderer);
 	}
 	close();
 	
@@ -241,6 +239,17 @@ std::queue<panel*> simpleQueueInit(std::queue<panel*> panels) {
 		for (int j = 0; j < SCREEN_WIDTH; j+=PANEL_WIDTH) {
 			Coord start = Coord(j,i);
 			Coord end = Coord(j + PANEL_WIDTH, i + PANEL_HEIGHT);
+			panels.push(new panel(start, end));
+		}
+	}
+	return panels;
+}
+
+std::queue<panel*> simpleQueueInitVert(std::queue<panel*> panels) {
+	for (int i = 0; i < SCREEN_WIDTH; i += PANEL_WIDTH) {
+		for (int j = 0; j < SCREEN_HEIGHT; j += PANEL_HEIGHT) {
+			Coord start = Coord(i, j);
+			Coord end = Coord(i + PANEL_WIDTH, j + PANEL_HEIGHT);
 			panels.push(new panel(start, end));
 		}
 	}
