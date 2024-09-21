@@ -41,7 +41,7 @@ struct panel {
 };
 
 struct color {
-	char r = 0x00, g = 0x00, b = 0x00;
+	Uint8 r = 0x00, g = 0x00, b = 0x00;
 };
 
 struct SDLContext {

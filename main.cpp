@@ -19,9 +19,21 @@ void createRenederedTile(SDL_Renderer* renderer, panel* inputPanel, std::queue<p
 			tile[i * PANEL_WIDTH + j].r = 0xFF;
 		}
 	}
-	SDL_Texture* texture = createTextureFromPixels(renderer, tile, PANEL_WIDTH, PANEL_HEIGHT);
+
+	SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(
+		tile, PANEL_WIDTH, PANEL_HEIGHT, 24, PANEL_WIDTH * sizeof(color),
+		0x000000FF, 0x0000FF00, 0x00FF0000, 0
+	);
+
+	//Want to throw error, think about this later
+	if (!surface) {
+		SDL_Log("SDL_CreateRGBSurfaceFrom failed: %s", SDL_GetError());
+		return;
+	}
+
+	SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+	SDL_FreeSurface(surface); 
 	inputPanel->textureToBeRendered = texture;
-	
 	{
 		std::unique_lock<std::mutex> lock(mtx);
 		renderedQueue.push(inputPanel);
@@ -109,10 +121,13 @@ int main(int argc, char* args[])
 			{
 				quit = true;
 			}
-			
+		}
+		while (!toBeRenderedQueue.empty())
+		{
 			SDL_Texture* texture = std::move(toBeRenderedQueue.front()->textureToBeRendered);
-			SDL_Rect dstRect = { toBeRenderedQueue.front()->topLeftPixelPos.x, toBeRenderedQueue.front()->topLeftPixelPos.y, PANEL_WIDTH, PANEL_HEIGHT};
+			SDL_Rect dstRect = { toBeRenderedQueue.front()->topLeftPixelPos.x, toBeRenderedQueue.front()->topLeftPixelPos.y, PANEL_WIDTH, PANEL_HEIGHT };
 			SDL_RenderCopy(context.renderer, texture, NULL, &dstRect);
+			toBeRenderedQueue.pop();
 		}
 		SDL_RenderPresent(context.renderer);
 	}
