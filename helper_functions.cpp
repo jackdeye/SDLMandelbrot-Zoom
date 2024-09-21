@@ -1,6 +1,14 @@
 #include "helper_functions.h"
 #include "helper_structs.h"
 #include <queue>
+template <typename T>
+interval<T> ithSubInterval(interval<T> global, int numInts, int index) {
+	//Assume the start for global < end for global, and both numInts and index are strictly positive
+	//index is zero indexed
+	T dist = global.end - global.start;
+	T stepLen = dist / numInts;
+	return interval<T>((index * stepLen) + global.start, ((index + 1) * stepLen) + global.start);
+}
 
 bool init(SDLContext& context)
 {
@@ -78,30 +86,41 @@ SDL_Surface* loadSurface(std::string path, SDLContext& context)
 	return optimizedSurface;
 }
 
-std::queue<panel*> simpleQueueInit() {
+std::queue<panel*> simpleQueueInit(interval<double> interX, interval<double> interY) {
 	std::queue<panel*> panels;
 	for (int i = 0; i < SCREEN_HEIGHT; i += PANEL_HEIGHT) {
+		interval<double> subY = ithSubInterval<double>(interY, SCREEN_HEIGHT / PANEL_HEIGHT, i);
 		for (int j = 0; j < SCREEN_WIDTH; j += PANEL_WIDTH) {
+			interval<double> subX = ithSubInterval<double>(interX, SCREEN_WIDTH / PANEL_WIDTH, j);
 			Coord start = Coord(j, i);
 			Coord end = Coord(j + PANEL_WIDTH, i + PANEL_HEIGHT);
-			panels.push(new panel(start, end));
+			panels.push(new panel(start, end, subX, subY));
 		}
 	}
 	return panels;
 }
 
-std::queue<panel*> simpleQueueInitVert() {
+std::queue<panel*> simpleQueueInitVert(interval<double> interX, interval<double> interY) {
 	std::queue<panel*> panels;
-	for (int i = 0; i < SCREEN_WIDTH; i += PANEL_WIDTH) {
-		for (int j = 0; j < SCREEN_HEIGHT; j += PANEL_HEIGHT) {
-			Coord start = Coord(i, j);
-			Coord end = Coord(i + PANEL_WIDTH, j + PANEL_HEIGHT);
-			panels.push(new panel(start, end));
+	for (int i = 0; i * PANEL_WIDTH < SCREEN_WIDTH; i++) {
+		interval<double> subX = ithSubInterval<double>(interX, SCREEN_WIDTH / PANEL_WIDTH, i);
+		for (int j = 0; j * PANEL_HEIGHT < SCREEN_HEIGHT; j++) {
+			interval<double> subY = ithSubInterval<double>(interY, SCREEN_HEIGHT / PANEL_HEIGHT, j);
+			Coord start = Coord(i*PANEL_WIDTH, j*PANEL_HEIGHT);
+			Coord end = Coord((i + 1) * PANEL_WIDTH, (j + 1) * PANEL_HEIGHT);
+			panels.push(new panel(start, end, subX, subY));
 		}
 	}
 	return panels;
 }
 
+SDL_Texture* createTextureFromPixels(SDL_Renderer* renderer, color *pixels, int width, int height) {
+	SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(pixels, width, height, sizeof(color), width * sizeof(color),
+		0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+	SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
+	SDL_FreeSurface(surface);
+	return texture;
+}
 
 //The following is entirely unneccesary; however, I wanted the spiralling outward pattern that Cinebench has, 
 //So I decided to program it myself. The following grid below should be drawn in the following order:

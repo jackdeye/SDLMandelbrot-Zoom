@@ -12,17 +12,24 @@
 #include "helper_structs.h"
 #include "helper_functions.h"
 
-
-void render_strip(SDL_Renderer* renderer, Coord start, Coord end) {
-	SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
-	for (int i = start.y; i < end.y; i++) {
-		for (int j = start.x; j < end.x; j++) {
-			SDL_RenderDrawPoint(renderer, j, i);
+void createRenederedTile(SDL_Renderer* renderer, panel* inputPanel, std::queue<panel*>& renderedQueue, std::mutex& mtx) {
+	color* tile = new color[PANEL_WIDTH*PANEL_HEIGHT];
+	for (int i = 0; i < PANEL_HEIGHT; i++) {
+		for (int j = 0; j < PANEL_WIDTH; j++) {
+			tile[i * PANEL_WIDTH + j].r = 0xFF;
 		}
 	}
+	SDL_Texture* texture = createTextureFromPixels(renderer, tile, PANEL_WIDTH, PANEL_HEIGHT);
+	inputPanel->textureToBeRendered = texture;
+	
+	{
+		std::unique_lock<std::mutex> lock(mtx);
+		renderedQueue.push(inputPanel);
+	}
+
 	std::this_thread::sleep_for(std::chrono::seconds(1));
 	std::ostringstream oss;
-	oss << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " has finished drawing from (" << start.x << ", " << start.y << ") to (" << end.x << ", " << end.y << ")" << std::endl;
+	oss << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " has finished drawing from (" << inputPanel->topLeftPixelPos.x << ", " << inputPanel->topLeftPixelPos.y << ") to (" << inputPanel->bottomRightPixelPos.x << ", " << inputPanel->bottomRightPixelPos.y << ")" << std::endl;
 	std::cout << oss.str() << std::endl;
 }
 
@@ -51,8 +58,9 @@ static void worker(std::queue<std::function<void()>>& tasks, std::mutex& mtx, bo
 int main(int argc, char* args[])
 {
 	SDLContext context;
-	std::mutex mtx;
 	bool done = false;
+
+	interval<double> xint = interval<double>(-2.0,2.0), yint = interval<double>(-2.0,2.0);
 
 	if (!init(context))
 	{
@@ -61,32 +69,31 @@ int main(int argc, char* args[])
 		return 1;
 	}
 
-	//Coord start = Coord(0,0);
-	//Coord end = Coord(PANEL_WIDTH, PANEL_HEIGHT);
-
-	std::queue<panel*> animationQueue = simpleQueueInitVert();
-	std::queue<std::function<void()>> taskQueue;
+	std::mutex mtxPre, mtxPost;
+	std::queue<panel*> toBeCalculatedQueue = simpleQueueInitVert(xint,yint); 
+	std::queue<std::function<void()>> inputTaskQueue; //mtxPre is associated with this queue
+	std::queue<panel*> toBeRenderedQueue; //mtxPost is associated with this queue
 
 	std::vector<std::thread> threads;
 	for (int i = 0; i < NUM_THREADS; i++) {
-		threads.emplace_back(worker, std::ref(taskQueue), std::ref(mtx), std::ref(done));
+		//std::ref is used to pass arguments by reference to the worker function when creating a new thread
+		threads.emplace_back(worker, std::ref(inputTaskQueue), std::ref(mtxPre), std::ref(done));
 	}
 	{
-		std::unique_lock<std::mutex> lock(mtx);
-		while (!animationQueue.empty()) {
-			panel* p = animationQueue.front();
-			animationQueue.pop();
-			auto boundFunction = [p, context]() {
+		std::unique_lock<std::mutex> lock(mtxPre);
+		while (!toBeCalculatedQueue.empty()) {
+			panel* panelPtr = toBeCalculatedQueue.front();
+			toBeCalculatedQueue.pop();
+			auto boundFunction = [panelPtr, context, &toBeRenderedQueue, &mtxPost]() {
 				//std::unique_lock<std::mutex> lock(mtx);
-				render_strip(context.renderer, p->TopLeft, p->BottomRight);
-				delete p;
+				createRenederedTile(context.renderer, panelPtr, toBeRenderedQueue, mtxPost);
 			};
-			taskQueue.push(boundFunction);
+			inputTaskQueue.push(boundFunction);
 		}
 	}
 	// Signal that no more tasks will be added
 	{
-		std::unique_lock<std::mutex> lock(mtx);
+		std::unique_lock<std::mutex> lock(mtxPre);
 		done = true;
 	}
 
@@ -102,7 +109,10 @@ int main(int argc, char* args[])
 			{
 				quit = true;
 			}
-			SDL_RenderPresent(context.renderer);
+			
+			SDL_Texture* texture = std::move(toBeRenderedQueue.front()->textureToBeRendered);
+			SDL_Rect dstRect = { toBeRenderedQueue.front()->topLeftPixelPos.x, toBeRenderedQueue.front()->topLeftPixelPos.y, PANEL_WIDTH, PANEL_HEIGHT};
+			SDL_RenderCopy(context.renderer, texture, NULL, &dstRect);
 		}
 		SDL_RenderPresent(context.renderer);
 	}

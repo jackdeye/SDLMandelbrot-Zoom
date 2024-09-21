@@ -23,10 +23,21 @@ struct Coord {
 	int y = 0;
 };
 
+template <typename T>
+struct interval {
+	interval() {};
+	interval(T s, T e) : start(s), end(e) {}
+	T start = 0;
+	T end = 0;
+};
+
 struct panel {
 	panel() {};
-	panel(Coord TopLeft, Coord BottomRight) : TopLeft(TopLeft), BottomRight(BottomRight) {}
-	Coord TopLeft, BottomRight;
+	panel(Coord topLeft, Coord bottomRight, interval<double> x, interval<double> y) 
+		: topLeftPixelPos(topLeft), bottomRightPixelPos(bottomRight), xInterval(x), yInterval(y) {}
+	Coord topLeftPixelPos, bottomRightPixelPos;
+	interval<double> xInterval, yInterval;
+	SDL_Texture* textureToBeRendered = nullptr;
 };
 
 struct color {
@@ -37,7 +48,6 @@ struct SDLContext {
 	SDL_Window* gWindow = nullptr;	//The window we'll be rendering to
 	SDL_Surface* gScreenSurface = nullptr;	//The surface contained by the window
 	SDL_Renderer* renderer = nullptr;
-	//void queueInit();
 };
 
 #endif // !STRUCTS
