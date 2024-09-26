@@ -13,6 +13,10 @@
 #include "helper_functions.h"
 
 void createRenederedTile(SDL_Renderer* renderer, panel* inputPanel, std::queue<panel*>& renderedQueue, std::mutex& mtx) {
+	std::ostringstream oss1;
+	oss1 << std::this_thread::get_id() << " has started drawing from (" << inputPanel->topLeftPixelPos.x << ", " << inputPanel->topLeftPixelPos.y << ") to (" << inputPanel->bottomRightPixelPos.x << ", " << inputPanel->bottomRightPixelPos.y << ")" << std::endl;
+	std::cout << oss1.str() << std::endl;
+	
 	color* tile = new color[PANEL_WIDTH*PANEL_HEIGHT];
 	for (int i = 0; i < PANEL_HEIGHT; i++) {
 		for (int j = 0; j < PANEL_WIDTH; j++) {
@@ -24,6 +28,7 @@ void createRenederedTile(SDL_Renderer* renderer, panel* inputPanel, std::queue<p
 		tile, PANEL_WIDTH, PANEL_HEIGHT, 24, PANEL_WIDTH * sizeof(color),
 		0x000000FF, 0x0000FF00, 0x00FF0000, 0
 	);
+	delete[] tile;
 
 	//Want to throw error, think about this later
 	if (!surface) {
@@ -38,11 +43,11 @@ void createRenederedTile(SDL_Renderer* renderer, panel* inputPanel, std::queue<p
 		std::unique_lock<std::mutex> lock(mtx);
 		renderedQueue.push(inputPanel);
 	}
+	std::ostringstream oss2;
+	oss2 << std::this_thread::get_id() << " has finished drawing from (" << inputPanel->topLeftPixelPos.x << ", " << inputPanel->topLeftPixelPos.y << ") to (" << inputPanel->bottomRightPixelPos.x << ", " << inputPanel->bottomRightPixelPos.y << ")" << std::endl;
+	std::cout << oss2.str() << std::endl;
+	//std::this_thread::sleep_for(std::chrono::seconds(1));
 
-	std::this_thread::sleep_for(std::chrono::seconds(1));
-	std::ostringstream oss;
-	oss << std::hash<std::thread::id>{}(std::this_thread::get_id()) << " has finished drawing from (" << inputPanel->topLeftPixelPos.x << ", " << inputPanel->topLeftPixelPos.y << ") to (" << inputPanel->bottomRightPixelPos.x << ", " << inputPanel->bottomRightPixelPos.y << ")" << std::endl;
-	std::cout << oss.str() << std::endl;
 }
 
 
@@ -97,7 +102,6 @@ int main(int argc, char* args[])
 			panel* panelPtr = toBeCalculatedQueue.front();
 			toBeCalculatedQueue.pop();
 			auto boundFunction = [panelPtr, context, &toBeRenderedQueue, &mtxPost]() {
-				//std::unique_lock<std::mutex> lock(mtx);
 				createRenederedTile(context.renderer, panelPtr, toBeRenderedQueue, mtxPost);
 			};
 			inputTaskQueue.push(boundFunction);
@@ -121,14 +125,31 @@ int main(int argc, char* args[])
 			{
 				quit = true;
 			}
+			std::cout << "We here" << std::endl;
 		}
-		while (!toBeRenderedQueue.empty())
+		SDL_Texture* texture = nullptr;
+		SDL_Rect dstRect;
 		{
-			SDL_Texture* texture = std::move(toBeRenderedQueue.front()->textureToBeRendered);
-			SDL_Rect dstRect = { toBeRenderedQueue.front()->topLeftPixelPos.x, toBeRenderedQueue.front()->topLeftPixelPos.y, PANEL_WIDTH, PANEL_HEIGHT };
-			SDL_RenderCopy(context.renderer, texture, NULL, &dstRect);
-			toBeRenderedQueue.pop();
+			std::unique_lock<std::mutex> lock(mtxPost);
+			if (!toBeRenderedQueue.empty())
+			{
+				texture = std::move(toBeRenderedQueue.front()->textureToBeRendered);
+				dstRect = { toBeRenderedQueue.front()->topLeftPixelPos.x, toBeRenderedQueue.front()->topLeftPixelPos.y, PANEL_WIDTH, PANEL_HEIGHT };
+				toBeRenderedQueue.pop();
+				std::cout << "Drew a square" << std::endl;
+
+			}
 		}
+
+		if (texture)
+		{
+			if (SDL_RenderCopy(context.renderer, texture, NULL, &dstRect) != 0)
+			{
+				std::cerr << "SDL_RenderCopy Error: " << SDL_GetError() << std::endl;
+			}
+			//SDL_DestroyTexture(texture);
+		}
+
 		SDL_RenderPresent(context.renderer);
 	}
 	close(context);
