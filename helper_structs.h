@@ -14,7 +14,7 @@ const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
 const int PANEL_WIDTH = 32;
 const int PANEL_HEIGHT = 32;
-const int NUM_THREADS = 3; //This can be changed later
+const int NUM_THREADS = 0; //This can be changed later
 
 struct Coord {
 	Coord() {};
@@ -35,9 +35,13 @@ struct panel {
 	panel() {};
 	panel(Coord topLeft, Coord bottomRight, interval<double> x, interval<double> y) 
 		: topLeftPixelPos(topLeft), bottomRightPixelPos(bottomRight), xInterval(x), yInterval(y) {}
+	~panel() {
+		SDL_DestroyTexture(textureToBeRendered);
+	}
 	Coord topLeftPixelPos, bottomRightPixelPos;
 	interval<double> xInterval, yInterval;
 	SDL_Texture* textureToBeRendered = nullptr;
+
 };
 
 struct color {

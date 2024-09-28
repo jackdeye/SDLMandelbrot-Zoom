@@ -12,7 +12,7 @@
 #include "helper_structs.h"
 #include "helper_functions.h"
 
-void createRenederedTile(SDL_Renderer* renderer, panel* inputPanel, std::queue<panel*>& renderedQueue, std::mutex& mtx) {
+void createRenderedTile(SDL_Renderer* renderer, panel* inputPanel, std::queue<panel*>& renderedQueue, std::mutex& mtx) {
 	std::ostringstream oss1;
 	oss1 << std::this_thread::get_id() << " has started drawing from (" << inputPanel->topLeftPixelPos.x << ", " << inputPanel->topLeftPixelPos.y << ") to (" << inputPanel->bottomRightPixelPos.x << ", " << inputPanel->bottomRightPixelPos.y << ")" << std::endl;
 	std::cout << oss1.str() << std::endl;
@@ -28,30 +28,30 @@ void createRenederedTile(SDL_Renderer* renderer, panel* inputPanel, std::queue<p
 		tile, PANEL_WIDTH, PANEL_HEIGHT, 24, PANEL_WIDTH * sizeof(color),
 		0x000000FF, 0x0000FF00, 0x00FF0000, 0
 	);
-	delete[] tile;
 
 	//Want to throw error, think about this later
 	if (!surface) {
 		SDL_Log("SDL_CreateRGBSurfaceFrom failed: %s", SDL_GetError());
+		delete[] tile;
 		return;
 	}
 
 	SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
 	SDL_FreeSurface(surface); 
+	delete[] tile;
+
 	inputPanel->textureToBeRendered = texture;
 	{
-		std::unique_lock<std::mutex> lock(mtx);
+		std::lock_guard<std::mutex> lock(mtx);
 		renderedQueue.push(inputPanel);
 	}
 	std::ostringstream oss2;
 	oss2 << std::this_thread::get_id() << " has finished drawing from (" << inputPanel->topLeftPixelPos.x << ", " << inputPanel->topLeftPixelPos.y << ") to (" << inputPanel->bottomRightPixelPos.x << ", " << inputPanel->bottomRightPixelPos.y << ")" << std::endl;
 	std::cout << oss2.str() << std::endl;
-	//std::this_thread::sleep_for(std::chrono::seconds(1));
-
 }
 
 
-static void worker(std::queue<std::function<void()>>& tasks, std::mutex& mtx, bool& done) {
+static void worker(std::queue<std::function<void()>>& tasks, std::mutex& mtx, const bool& done) {
 	while (true) {
 		std::function<void()> task;
 		{
@@ -102,7 +102,7 @@ int main(int argc, char* args[])
 			panel* panelPtr = toBeCalculatedQueue.front();
 			toBeCalculatedQueue.pop();
 			auto boundFunction = [panelPtr, context, &toBeRenderedQueue, &mtxPost]() {
-				createRenederedTile(context.renderer, panelPtr, toBeRenderedQueue, mtxPost);
+				createRenderedTile(context.renderer, panelPtr, toBeRenderedQueue, mtxPost);
 			};
 			inputTaskQueue.push(boundFunction);
 		}
@@ -118,40 +118,45 @@ int main(int argc, char* args[])
 
 	while (!quit)
 	{
+		//if (!inputTaskQueue.empty())
+			//continue;
+
 		while (SDL_PollEvent(&e) != 0)
 		{
-			//User requests quit
 			if (e.type == SDL_QUIT)
 			{
 				quit = true;
 			}
-			std::cout << "We here" << std::endl;
 		}
-		SDL_Texture* texture = nullptr;
-		SDL_Rect dstRect;
+
+		panel* panelToRender = nullptr;
 		{
-			std::unique_lock<std::mutex> lock(mtxPost);
+			std::lock_guard<std::mutex> lock(mtxPost);
 			if (!toBeRenderedQueue.empty())
 			{
-				texture = std::move(toBeRenderedQueue.front()->textureToBeRendered);
-				dstRect = { toBeRenderedQueue.front()->topLeftPixelPos.x, toBeRenderedQueue.front()->topLeftPixelPos.y, PANEL_WIDTH, PANEL_HEIGHT };
+				panelToRender = toBeRenderedQueue.front();
 				toBeRenderedQueue.pop();
-				std::cout << "Drew a square" << std::endl;
-
 			}
 		}
 
-		if (texture)
+		if (panelToRender && panelToRender->textureToBeRendered)
 		{
-			if (SDL_RenderCopy(context.renderer, texture, NULL, &dstRect) != 0)
+			SDL_Rect dstRect = { panelToRender->topLeftPixelPos.x, panelToRender->topLeftPixelPos.y, PANEL_WIDTH, PANEL_HEIGHT };
+			if (SDL_RenderCopy(context.renderer, panelToRender->textureToBeRendered, NULL, &dstRect) != 0)
 			{
 				std::cerr << "SDL_RenderCopy Error: " << SDL_GetError() << std::endl;
 			}
-			//SDL_DestroyTexture(texture);
+			delete panelToRender;
+			std::cout << "Drew a square" << std::endl;
 		}
-
-		SDL_RenderPresent(context.renderer);
+		if (context.renderer) {
+			SDL_RenderPresent(context.renderer);
+		}
+		else {
+			std::cerr << "Invalid renderer context" << std::endl;
+		}
 	}
+
 	close(context);
 	for (auto& thread : threads) {
 		thread.join();
